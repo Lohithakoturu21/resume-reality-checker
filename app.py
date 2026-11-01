@@ -1,7 +1,8 @@
 import html
 import streamlit as st
-from matcher import extract_text, find_skills, match
+from matcher import extract_text, find_skills, match, get_proven_skills
 from suggestions import SUGGESTIONS
+
 
 
 st.set_page_config(
@@ -60,6 +61,7 @@ if check_button:
             resume_skills = find_skills(resume_text)
             jd_skills = find_skills(jd_text)
             match_pct, matched_skills, missing_skills = match(resume_skills, jd_skills)
+            proven_skills, claimed_only = get_proven_skills(resume_text)
 
             st.session_state["results"] = {
                 "match_pct": match_pct,
@@ -67,6 +69,9 @@ if check_button:
                 "jd_skills": jd_skills,
                 "matched_skills": matched_skills,
                 "missing_skills": missing_skills,
+                "proven_skills": proven_skills,
+                "claimed_only": claimed_only,
+                "resume_text": resume_text,
             }
 
 if "results" in st.session_state:
@@ -76,6 +81,14 @@ if "results" in st.session_state:
     jd_skills = res["jd_skills"]
     matched_skills = res["matched_skills"]
     missing_skills = res["missing_skills"]
+    proven_skills = res.get("proven_skills")
+    claimed_only = res.get("claimed_only")
+    if proven_skills is None or claimed_only is None:
+        if "resume_text" in res:
+            proven_skills, claimed_only = get_proven_skills(res["resume_text"])
+        else:
+            proven_skills = set()
+            claimed_only = set(resume_skills)
 
     st.divider()
     st.subheader("📊 Match Results")
@@ -100,20 +113,24 @@ if "results" in st.session_state:
     st.write("")
 
     # Reality Verdict box above the skill lists based on match percentage
+    evidence_count_str = f"{len(proven_skills)} of {len(resume_skills)} skills are backed by projects."
     if match_pct >= 75:
         st.success(
-            "**Reality Verdict: Apply now**\n\n"
-            "Your profile strongly aligns with the job requirements—tailor your resume highlights and submit your application with confidence!"
+            f"**Reality Verdict: Apply now**\n\n"
+            f"{evidence_count_str} "
+            f"Your profile strongly aligns with the job requirements—tailor your resume highlights and submit your application with confidence!"
         )
     elif match_pct >= 40:
         st.warning(
-            "**Reality Verdict: Upskill first, you are close**\n\n"
-            "You have a solid foundation, but closing the gap on missing key skills will significantly improve your chances."
+            f"**Reality Verdict: Upskill first, you are close**\n\n"
+            f"{evidence_count_str} "
+            f"You have a solid foundation, but closing the gap on missing key skills will significantly improve your chances."
         )
     else:
         st.error(
-            "**Reality Verdict: Not ready yet**\n\n"
-            "There is a substantial skill gap for this role; focus on foundational courses and practical beginner projects before applying."
+            f"**Reality Verdict: Not ready yet**\n\n"
+            f"{evidence_count_str} "
+            f"There is a substantial skill gap for this role; focus on foundational courses and practical beginner projects before applying."
         )
 
     # Display Extracted Resume Skills, Matched Skills, and Missing Skills
@@ -127,6 +144,7 @@ if "results" in st.session_state:
             "blue": {"bg": "#e0f2fe", "text": "#0369a1", "border": "#7dd3fc"},
             "green": {"bg": "#dcfce7", "text": "#15803d", "border": "#86efac"},
             "red": {"bg": "#fee2e2", "text": "#b91c1c", "border": "#fca5a5"},
+            "yellow": {"bg": "#fef9c3", "text": "#854d0e", "border": "#fde047"},
         }
         theme = colors.get(badge_type, colors["blue"])
         badges = " ".join([
@@ -140,6 +158,14 @@ if "results" in st.session_state:
     with col1:
         st.markdown(f"### 📄 Extracted Resume Skills ({len(resume_skills)})")
         render_badges(resume_skills, "blue")
+
+        st.write("")
+        st.markdown("#### Claimed vs Proven")
+        st.markdown("Recruiters trust skills that are backed by a project or experience.")
+        st.markdown(f"**Proven Skills ({len(proven_skills)}):**")
+        render_badges(proven_skills, "green")
+        st.markdown(f"**Claimed Only ({len(claimed_only)}):**")
+        render_badges(claimed_only, "yellow")
 
     with col2:
         st.markdown(f"### ✅ Matched Skills ({len(matched_skills)})")

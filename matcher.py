@@ -188,4 +188,196 @@ def match(resume_skills: Iterable[str], jd_skills: Iterable[str]) -> Tuple[float
     return match_percentage, matched, missing
 
 
-__all__ = ["SKILLS", "extract_text", "find_skills", "match"]
+_SKILLS_HEADING_PATTERN = re.compile(
+    r"^(?:"
+    r"skills?|"
+    r"technical\s+skills?|"
+    r"key\s+skills?|"
+    r"core\s+skills?|"
+    r"professional\s+skills?|"
+    r"computer\s+skills?|"
+    r"it\s+skills?|"
+    r"programming\s+skills?|"
+    r"hard\s+skills?|"
+    r"soft\s+skills?|"
+    r"tech\s*stack|"
+    r"technologies|"
+    r"tools\s+(?:and|&)\s+technologies|"
+    r"technologies\s+(?:and|&)\s+tools|"
+    r"skills?\s+(?:and|&)\s+(?:tools|abilities|competencies|technologies|proficiencies|expertise)|"
+    r"technical\s+proficiencies|"
+    r"core\s+competencies|"
+    r"areas\s+of\s+expertise|"
+    r"competencies"
+    r")$",
+    re.IGNORECASE,
+)
+
+_NON_SKILLS_HEADING_PATTERN = re.compile(
+    r"^(?:"
+    r"(?:work\s+|professional\s+|relevant\s+|career\s+|employment\s+)?experience|"
+    r"employment(?:\s+history)?|"
+    r"work\s+history|"
+    r"(?:academic\s+|personal\s+|key\s+|selected\s+|technical\s+|notable\s+)?projects?|"
+    r"internships?(?:\s+experience)?|"
+    r"education(?:\s+background|\s+history|\s+qualifications)?|"
+    r"academic(?:\s+background|\s+qualifications|\s+history)?|"
+    r"academics|"
+    r"certifications?|"
+    r"certificates?|"
+    r"licenses?(?:\s+(?:and|&)\s+certifications?)?|"
+    r"(?:professional\s+|executive\s+|career\s+)?summary|"
+    r"profile|"
+    r"personal\s+profile|"
+    r"about(?:\s+me)?|"
+    r"(?:career\s+)?objective|"
+    r"awards?(?:\s+(?:and|&)\s+honors?)?|"
+    r"honors?(?:\s+(?:and|&)\s+awards?)?|"
+    r"achievements?|"
+    r"accomplishments?|"
+    r"publications?|"
+    r"research(?:\s+experience)?|"
+    r"volunteer(?:\s+experience|\s+work)?|"
+    r"volunteering|"
+    r"extracurricular(?:\s+activities)?|"
+    r"activities|"
+    r"leadership(?:\s+experience)?|"
+    r"affiliations?|"
+    r"memberships?|"
+    r"interests?|"
+    r"hobbies|"
+    r"references?"
+    r")$",
+    re.IGNORECASE,
+)
+
+
+def _clean_line_for_heading(line: str) -> str:
+    """Normalize line text by stripping markdown symbols, bullets, and punctuation."""
+    cleaned = line.strip()
+    cleaned = re.sub(r"^[\s#*\-–—•|>]+", "", cleaned)
+    cleaned = re.sub(r"[\s*:\-–—|#]+$", "", cleaned)
+    return cleaned.strip()
+
+
+def _is_skills_heading(line: str) -> bool:
+    """Check if a line represents a Skills section heading."""
+    cleaned = _clean_line_for_heading(line)
+    if not cleaned or len(cleaned.split()) > 5 or len(cleaned) > 40:
+        return False
+    if cleaned.endswith((".", ",", ";")):
+        return False
+    if _SKILLS_HEADING_PATTERN.match(cleaned):
+        return True
+    lower = cleaned.lower()
+    if re.search(r"\b(skills?|tech\s*stack|technologies)\b", lower):
+        if not re.search(r"\b(experience|projects?|work|internships?|education|summary|awards?)\b", lower):
+            return True
+    return False
+
+
+def _is_non_skills_heading(line: str) -> bool:
+    """Check if a line represents a non-skills section heading (e.g. Experience, Projects)."""
+    cleaned = _clean_line_for_heading(line)
+    if not cleaned or len(cleaned.split()) > 5 or len(cleaned) > 40:
+        return False
+    if cleaned.endswith((".", ",", ";")):
+        return False
+    if _NON_SKILLS_HEADING_PATTERN.match(cleaned):
+        return True
+    lower = cleaned.lower()
+    if re.search(r"\b(experience|projects?|internships?|education|certif|training|courses?|summary|profile|awards?|publications?)\b", lower):
+        return True
+    if cleaned.isupper() and len(cleaned.split()) <= 4 and len(cleaned) <= 30:
+        return True
+    return False
+
+
+def split_resume_sections(resume_text: str) -> Tuple[str, str]:
+    """Split resume text into a skills section and an evidence section.
+
+    Skills section: text under headings like Skills, Technical Skills.
+    Evidence section: everything else (Projects, Experience, Internships, etc.).
+
+    Args:
+        resume_text: Raw text string of the resume.
+
+    Returns:
+        A tuple of (skills_section_text, evidence_section_text).
+    """
+    if not resume_text or not isinstance(resume_text, str):
+        return "", ""
+
+    skills_lines = []
+    evidence_lines = []
+    in_skills_section = False
+
+    for line in resume_text.splitlines():
+        trimmed = line.strip()
+        if not trimmed:
+            continue
+
+        # Handle inline headings like "Technical Skills: Python, Java, Docker"
+        inline_skills_match = re.match(
+            r"^(technical\s+skills?|key\s+skills?|core\s+skills?|skills?|tech\s*stack|technologies)\s*:\s*(.+)$",
+            trimmed,
+            re.IGNORECASE,
+        )
+        if inline_skills_match:
+            in_skills_section = True
+            content_after = inline_skills_match.group(2).strip()
+            if content_after:
+                skills_lines.append(content_after)
+            continue
+
+        inline_evidence_match = re.match(
+            r"^((?:work\s+|professional\s+)?experience|projects?|internships?|education)\s*:\s*(.+)$",
+            trimmed,
+            re.IGNORECASE,
+        )
+        if inline_evidence_match:
+            in_skills_section = False
+            evidence_lines.append(line)
+            continue
+
+        if _is_skills_heading(trimmed):
+            in_skills_section = True
+            continue
+        elif in_skills_section and _is_non_skills_heading(trimmed):
+            in_skills_section = False
+            evidence_lines.append(line)
+        elif in_skills_section:
+            skills_lines.append(line)
+        else:
+            evidence_lines.append(line)
+
+    return "\n".join(skills_lines), "\n".join(evidence_lines)
+
+
+def get_proven_skills(resume_text: str) -> Tuple[Set[str], Set[str]]:
+    """Determine proven skills vs claimed-only skills in a resume.
+
+    Splits resume text into a skills section and an evidence section (such as
+    Projects, Experience, Internships), returning:
+    - proven: skills found in the evidence section.
+    - claimed_only: skills found only in the skills section.
+
+    Args:
+        resume_text: Raw text of the resume.
+
+    Returns:
+        A tuple of (proven, claimed_only) sets.
+    """
+    if not resume_text or not isinstance(resume_text, str):
+        return set(), set()
+
+    skills_text, evidence_text = split_resume_sections(resume_text)
+    proven = find_skills(evidence_text)
+    skills_section_skills = find_skills(skills_text)
+    claimed_only = skills_section_skills - proven
+
+    return proven, claimed_only
+
+
+__all__ = ["SKILLS", "extract_text", "find_skills", "match", "split_resume_sections", "get_proven_skills"]
+
