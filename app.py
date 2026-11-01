@@ -1,6 +1,8 @@
 import html
 import streamlit as st
 from matcher import extract_text, find_skills, match
+from suggestions import SUGGESTIONS
+
 
 st.set_page_config(
     page_title="Resume vs Job Reality Checker",
@@ -97,6 +99,23 @@ if "results" in st.session_state:
 
     st.write("")
 
+    # Reality Verdict box above the skill lists based on match percentage
+    if match_pct >= 75:
+        st.success(
+            "**Reality Verdict: Apply now**\n\n"
+            "Your profile strongly aligns with the job requirements—tailor your resume highlights and submit your application with confidence!"
+        )
+    elif match_pct >= 40:
+        st.warning(
+            "**Reality Verdict: Upskill first, you are close**\n\n"
+            "You have a solid foundation, but closing the gap on missing key skills will significantly improve your chances."
+        )
+    else:
+        st.error(
+            "**Reality Verdict: Not ready yet**\n\n"
+            "There is a substantial skill gap for this role; focus on foundational courses and practical beginner projects before applying."
+        )
+
     # Display Extracted Resume Skills, Matched Skills, and Missing Skills
     col1, col2, col3 = st.columns(3, gap="medium")
 
@@ -129,3 +148,25 @@ if "results" in st.session_state:
     with col3:
         st.markdown(f"### ❌ Missing Skills ({len(missing_skills)})")
         render_badges(missing_skills, "red")
+
+    # Learning Plan section
+    st.divider()
+    st.subheader("Learning Plan")
+    if missing_skills:
+        for skill in sorted(missing_skills):
+            suggestion = SUGGESTIONS.get(skill.lower(), {})
+            course = suggestion.get("course", "Recommended course")
+            platform = suggestion.get("platform", "")
+            project = suggestion.get("project") or suggestion.get("project_idea", "Beginner project idea")
+
+            if platform and platform.lower() not in course.lower():
+                course_display = f"{course} ({platform})"
+            else:
+                course_display = course
+
+            with st.expander(skill.title()):
+                st.markdown(f"**Course:** {course_display}")
+                st.markdown(f"**Project Idea:** {project}")
+    else:
+        st.success("🎉 No missing skills detected! You meet all the catalog skill requirements for this position.")
+
